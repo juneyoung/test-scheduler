@@ -1,57 +1,88 @@
 package org.owls.scheduler.manager;
 
-import org.owls.scheduler.ScheduledFunction;
 
-import java.util.List;
+import org.owls.scheduler.vo.Runner;
+
+import java.util.Date;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class BasicSchedulerManager implements ScheduleManager {
-    private ManagerStatus managerStatus;
-    private final Map<String, ScheduledFunction<?>> scheduledFunctionByScheduleName;
+    private ManagerStatus status;
+    private final Map<String, Runner> runnerByName;
     private final ExecutorService executorService;
-    private final int FIXED_THREAD_POOL = 10;
+    private final Thread backgroundMonitor;
+    private static final long BASE_INTERVAL_MILLIS = 1000L;
 
-    public BasicSchedulerManager() {
-        this.scheduledFunctionByScheduleName = new ConcurrentHashMap<>();
-        this.executorService = Executors.newFixedThreadPool(FIXED_THREAD_POOL);
+    public BasicSchedulerManager(ExecutorService executorService) {
+        this.executorService = executorService;
+        this.runnerByName = new ConcurrentHashMap<>();
+        this.status = ManagerStatus.TERMINATED;
+        this.backgroundMonitor = new Thread(() -> {
+            while(true) {
+                try {
+                    long nowInEpochSeconds = System.currentTimeMillis()/1000L;
+                    for (Map.Entry<String, Runner> entry : this.runnerByName.entrySet()) {
+                        String runnableName = entry.getKey();
+                        Runner r = entry.getValue();
+                        // 실행 조건에 맞으면 executorService.submit
+                        long lastExecutedInSeconds = r.getLastExecutedEpochSeconds();
+                        long intervalInSeconds = r.getIntervalInMilliSeconds()/1000L;
+                        if (nowInEpochSeconds == (lastExecutedInSeconds + intervalInSeconds)){
+                            Runnable runnable = r.updateLastExecutionAndGetRunnable();
+                            System.out.println("===> " + new Date(nowInEpochSeconds * 1000) + " submit Runnable name : " + runnableName);
+                            this.executorService.submit(runnable);
+                        }
+                    }
+                    //noinspection BusyWait
+                    Thread.sleep(BASE_INTERVAL_MILLIS);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
     }
 
     @Override
-    public <T> void registerSchedule(String name, String cronExpression, ScheduledFunction<T> scheduledFunction) {
-        this.scheduledFunctionByScheduleName.put(name, scheduledFunction);
+    public void registerSchedule(String name, Runner runner) {
+        this.runnerByName.put(name, runner);
     }
 
     @Override
     public void removeSchedule(String name) {
-        this.scheduledFunctionByScheduleName.remove(name);
-    }
-
-    @Override
-    public Set<String> listSchedule() {
-        return this.scheduledFunctionByScheduleName.keySet();
+        this.runnerByName.remove(name);
     }
 
     @Override
     public void start() {
-        if (this.managerStatus != ManagerStatus.RUNNING) {
-            // thread 돌면서 주기가 맞으면 execute / 이전 잡이 안 끝났으면?
-            this.managerStatus = ManagerStatus.RUNNING;
-            // TODO: 루프 돌면서 executorService 에 submit 한다.
+        if (ManagerStatus.RUNNING != this.status) {
+            this.status = ManagerStatus.RUNNING;
+            this.backgroundMonitor.start();
         }
     }
 
     @Override
     public void stop() {
-        this.managerStatus = ManagerStatus.TERMINATED;
-        // TODO: 모니터 중지
+        boolean terminated = false;
+        try {
+            terminated = this.executorService.awaitTermination(3, TimeUnit.SECONDS);
+            this.status = ManagerStatus.TERMINATED;
+        } catch (InterruptedException ignore) {
+
+        }
+        System.out.println("SchedulerManager has been stopped: " + terminated);
+    }
+
+    @Override
+    public Set<String> listSchedule() {
+        return this.runnerByName.keySet();
     }
 
     @Override
     public ManagerStatus getStatus() {
-        return this.managerStatus;
+        return this.status;
     }
 }
