@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class BasicSchedulerManager implements ScheduleManager {
     private ManagerStatus status;
@@ -22,7 +21,7 @@ public class BasicSchedulerManager implements ScheduleManager {
         this.runnerByName = new ConcurrentHashMap<>();
         this.status = ManagerStatus.TERMINATED;
         this.backgroundMonitor = new Thread(() -> {
-            while(true) {
+            while(!Thread.currentThread().isInterrupted()) {
                 try {
                     long nowInEpochSeconds = System.currentTimeMillis()/1000L;
                     for (Map.Entry<String, Runner> entry : this.runnerByName.entrySet()) {
@@ -40,6 +39,7 @@ public class BasicSchedulerManager implements ScheduleManager {
                     //noinspection BusyWait
                     Thread.sleep(BASE_INTERVAL_MILLIS);
                 } catch (InterruptedException e) {
+                    System.out.println("===> Monitor interrupted");
                     throw new RuntimeException(e);
                 }
             }
@@ -66,14 +66,11 @@ public class BasicSchedulerManager implements ScheduleManager {
 
     @Override
     public void stop() {
-        boolean terminated = false;
-        try {
-            terminated = this.executorService.awaitTermination(3, TimeUnit.SECONDS);
-            this.status = ManagerStatus.TERMINATED;
-        } catch (InterruptedException ignore) {
-
+        while(!this.executorService.isShutdown()) {
+            this.executorService.shutdown();
         }
-        System.out.println("SchedulerManager has been stopped: " + terminated);
+        this.status = ManagerStatus.TERMINATED;
+        System.out.println("SchedulerManager has been stopped: " + this.executorService.isShutdown());
     }
 
     @Override

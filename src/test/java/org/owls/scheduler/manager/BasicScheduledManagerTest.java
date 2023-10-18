@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Date;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -29,13 +30,13 @@ public class BasicScheduledManagerTest {
 
     @BeforeEach
     public void setupEach() {
-        ExecutorService executorService = Executors.newFixedThreadPool(4);
+        ExecutorService executorService = Executors.newFixedThreadPool(10);
         BasicScheduledManagerTest.onetimeCounter = new AtomicInteger(0);
         this.oneTimeSut = new BasicSchedulerManager(executorService);
     }
 
     @Test
-    public void testStart() {
+    public void testStart() throws Exception {
         int runnerCount = 10;
         long interval = 2000;
         for(int i = 0; i < runnerCount; i++) {
@@ -47,6 +48,16 @@ public class BasicScheduledManagerTest {
             ));
         }
         this.oneTimeSut.start();
+        Set<String> listedSchedules = this.oneTimeSut.listSchedule();
+        assertThat(listedSchedules).hasSize(10);
+        assertThat(listedSchedules).containsExactlyInAnyOrder(
+            "testRunner-0", "testRunner-1", "testRunner-2",
+                    "testRunner-3", "testRunner-4", "testRunner-5",
+                    "testRunner-6", "testRunner-7", "testRunner-8",
+                    "testRunner-9"
+                );
+        Thread.sleep(2000L + 1);
+        assertThat(this.oneTimeSut.getStatus()).isEqualTo(ManagerStatus.RUNNING);
         this.oneTimeSut.stop();
         int actualCount = BasicScheduledManagerTest.onetimeCounter.get();
         assertThat(actualCount).isEqualTo(runnerCount);
