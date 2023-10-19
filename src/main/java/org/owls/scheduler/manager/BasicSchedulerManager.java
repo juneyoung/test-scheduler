@@ -82,4 +82,10 @@ public class BasicSchedulerManager implements ScheduleManager {
     public ManagerStatus getStatus() {
         return this.status;
     }
+
+    @Override
+    protected void finalize() throws Throwable {
+        super.finalize();
+        this.stop();
+    }
 }
